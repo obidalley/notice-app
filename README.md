@@ -1,50 +1,296 @@
-# Welcome to your Expo app 👋
+# Global System for Mobile Community-Based Notice
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A comprehensive React Native (Expo) mobile application for location-based community notices with real-time chat functionality.
 
-## Get started
+## Features
 
-1. Install dependencies
+### 🔐 Authentication
+- Firebase email/password authentication
+- Google Sign-In integration
+- Secure user profile management
+- Password reset functionality
 
-   ```bash
-   npm install
-   ```
+### 📍 Location-Based Notices
+- Create notices (events, alerts, news) with location tagging
+- Real-time location-based filtering
+- Image upload support via Firebase Storage
+- Priority-based notice categorization (low, medium, high, emergency)
+- User interactions (RSVP, comments, likes, share)
 
-2. Start the app
+### 💬 Real-Time Chat System
+- WhatsApp-style messaging interface
+- Group chat functionality
+- Text and image messaging
+- Real-time message synchronization
+- Chat room management
 
-   ```bash
-   npx expo start
-   ```
+### 🔔 Push Notifications
+- Firebase Cloud Messaging integration
+- Location-based notice alerts
+- Chat message notifications
+- Emergency alert system
 
-In the output, you'll find options to open the app in a
+### 🌤️ Weather Integration
+- Automated weather alert notices
+- Location-based weather monitoring
+- Emergency weather notifications
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### 🎨 Modern UI/UX
+- Beautiful gradient designs
+- Smooth animations and transitions
+- Dark mode support
+- Responsive layout for all screen sizes
+- Clean, intuitive interface
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Setup Instructions
 
-## Get a fresh project
+### 1. Firebase Configuration
 
-When you're ready, run:
+1. Create a new Firebase project at [Firebase Console](https://console.firebase.google.com/)
 
+2. Enable the following services:
+   - Authentication (Email/Password and Google)
+   - Realtime Database
+   - Storage
+   - Cloud Messaging
+
+3. Add your Android/iOS app to the Firebase project
+
+4. Download and add configuration files:
+   - `google-services.json` for Android
+   - `GoogleService-Info.plist` for iOS
+
+5. Update `config/firebase.ts` with your Firebase configuration
+
+### 2. Google Sign-In Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable Google Sign-In API
+3. Create OAuth 2.0 credentials
+4. Update the `webClientId` in `hooks/useFirebaseAuth.ts`
+
+### 3. Weather API Setup
+
+1. Get an API key from [OpenWeatherMap](https://openweathermap.org/api)
+2. Update `API_KEY` in `services/WeatherService.ts`
+
+### 4. Environment Setup
+
+1. Install dependencies:
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. Install development build for testing on device:
+```bash
+npx expo install --fix
+```
 
-## Learn more
+### 5. Database Structure
 
-To learn more about developing your project with Expo, look at the following resources:
+The app uses Firebase Realtime Database with the following structure:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+{
+  "users": {
+    "userId": {
+      "id": "string",
+      "email": "string",
+      "displayName": "string",
+      "photoURL": "string",
+      "location": {
+        "latitude": "number",
+        "longitude": "number",
+        "address": "string"
+      },
+      "createdAt": "string"
+    }
+  },
+  "notices": {
+    "noticeId": {
+      "id": "string",
+      "authorId": "string",
+      "authorName": "string",
+      "type": "event|alert|news",
+      "title": "string",
+      "description": "string",
+      "imageUrl": "string",
+      "location": {
+        "latitude": "number",
+        "longitude": "number",
+        "address": "string"
+      },
+      "priority": "low|medium|high|emergency",
+      "createdAt": "string",
+      "rsvpList": ["userId1", "userId2"],
+      "likes": ["userId1", "userId2"],
+      "comments": [
+        {
+          "id": "string",
+          "authorId": "string",
+          "authorName": "string",
+          "text": "string",
+          "createdAt": "string"
+        }
+      ]
+    }
+  },
+  "chatRooms": {
+    "roomId": {
+      "id": "string",
+      "name": "string",
+      "type": "private|group",
+      "members": ["userId1", "userId2"],
+      "createdBy": "string",
+      "createdAt": "string",
+      "lastMessage": "ChatMessage",
+      "lastMessageTime": "string"
+    }
+  },
+  "chatMessages": {
+    "roomId": {
+      "messageId": {
+        "id": "string",
+        "roomId": "string",
+        "senderId": "string",
+        "senderName": "string",
+        "text": "string",
+        "imageUrl": "string",
+        "type": "text|image",
+        "timestamp": "string",
+        "read": "boolean"
+      }
+    }
+  }
+}
+```
 
-## Join the community
+## Development
 
-Join our community of developers creating universal apps.
+### Running the App
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+# Start the development server
+npm run dev
+
+# Run on iOS
+npm run ios
+
+# Run on Android
+npm run android
+```
+
+### Building for Production
+
+```bash
+# Build for production
+expo build
+
+# Create development build
+expo install --fix
+eas build --profile development
+```
+
+## Security Rules
+
+### Realtime Database Rules
+
+```json
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "notices": {
+      ".read": "auth != null",
+      "$noticeId": {
+        ".write": "auth != null && (auth.uid == data.child('authorId').val() || !data.exists())"
+      }
+    },
+    "chatRooms": {
+      "$roomId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+        ".write": "auth != null && (data.child('members').child(auth.uid).exists() || !data.exists())"
+      }
+    },
+    "chatMessages": {
+      "$roomId": {
+        ".read": "auth != null && root.child('chatRooms').child($roomId).child('members').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('chatRooms').child($roomId).child('members').child(auth.uid).exists()"
+      }
+    }
+  }
+}
+```
+
+### Storage Rules
+
+```javascript
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
+## Features Overview
+
+### Notice Management
+- Create notices with rich content (title, description, images)
+- Automatic location tagging
+- Real-time location-based filtering
+- Priority-based categorization
+- Community interactions (likes, comments, RSVP)
+
+### Chat System
+- Real-time messaging with Firebase Realtime Database
+- Image sharing capabilities
+- Group chat management
+- Message status indicators
+
+### Location Services
+- Automatic location detection
+- Geofenced notice delivery
+- Location-based community discovery
+- Privacy-conscious location sharing
+
+### Notification System
+- Push notifications for new notices
+- Chat message alerts
+- Emergency notifications
+- Weather alert integration
+
+## Architecture
+
+The app follows a modular architecture with:
+
+- **Services Layer**: Firebase integration, location services, notifications
+- **Hooks Layer**: Custom React hooks for state management
+- **Components Layer**: Reusable UI components
+- **Screens Layer**: Tab-based navigation with Expo Router
+
+## Performance Optimizations
+
+- Real-time data synchronization with Firebase
+- Efficient image loading and caching
+- Location-based data filtering
+- Optimized FlatList rendering
+- Background task handling
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.

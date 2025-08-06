@@ -1,29 +1,65 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
+import AuthScreen from '@/components/AuthScreen';
+import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
+import { useFrameworkReady } from '@/hooks/useFrameworkReady';
+import { NotificationService } from '@/services/NotificationService';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useEffect, useState } from 'react';
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
+  useFrameworkReady();
+  const { user, initializing } = useFirebaseAuth();
+  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
 
-  if (!loaded) {
-    // Async font loading only occurs in development.
-    return null;
+  useEffect(() => {
+    initializeNotifications();
+  }, []);
+
+  const initializeNotifications = async () => {
+    try {
+      await NotificationService.initialize();
+      await NotificationService.setupBackgroundMessageHandler();
+      setNotificationsInitialized(true);
+
+      // Set up notification listeners
+      const notificationListener = NotificationService.onNotificationReceived((notification) => {
+        console.log('Notification received:', notification);
+      });
+
+      const responseListener = NotificationService.onNotificationResponse((response) => {
+        console.log('Notification response:', response);
+        // Handle notification tap - navigate to relevant screen
+      });
+
+      return () => {
+        notificationListener.remove();
+        responseListener.remove();
+      };
+    } catch (error) {
+      console.error('Error initializing notifications:', error);
+    }
+  };
+
+  if (initializing) {
+    return null; // Show loading screen or splash
+  }
+
+  if (!user) {
+    return (
+      <>
+        <AuthScreen />
+        <StatusBar style="auto" />
+      </>
+    );
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    <>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
-    </ThemeProvider>
+    </>
   );
 }

@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "131802422324",
+    "firebase_url": "https://tutorial-aa29d-default-rtdb.firebaseio.com",
+    "project_id": "tutorial-aa29d",
+    "storage_bucket": "tutorial-aa29d.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:131802422324:android:9ca719e341d8ff1675fe61",
+        "android_client_info": {
+          "package_name": "notice.mobile.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "131802422324-s9i4h5pqva9ge8justccethgltukt2s8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWm-iUG_wN9c1LJvaPwpXIqzn8zwSqmRU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "131802422324-s9i4h5pqva9ge8justccethgltukt2s8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
