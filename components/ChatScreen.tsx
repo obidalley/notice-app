@@ -1,10 +1,10 @@
 import ChatBubble from '@/components/ChatBubble';
-import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { FirebaseService } from '@/services/FirebaseService';
 import { ChatMessage, ChatRoom } from '@/types';
 import * as ImagePicker from 'expo-image-picker';
-import { ArrowLeft, Camera, MoveVertical as MoreVertical, Send } from 'lucide-react-native';
-import React, { Component, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Camera, MoreVertical, Send } from 'lucide-react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     FlatList,
@@ -23,46 +23,35 @@ interface ChatScreenProps {
     onBack: () => void;
 }
 
-// Error boundary to catch and display errors
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
-    state = { hasError: false, error: null };
-
-    static getDerivedStateFromError(error: Error) {
-        return { hasError: true, error };
-    }
-
-    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-        console.error('ErrorBoundary caught an error:', error, errorInfo);
-    }
-
-    render() {
-        if (this.state.hasError) {
-            return (
-                <SafeAreaView style={styles.container}>
-                    <Text style={styles.message}>
-                        Something went wrong: {this.state.error || 'Unknown error'}
-                    </Text>
-                    <TouchableOpacity
-                        style={styles.createButton}
-                        onPress={() => this.setState({ hasError: false, error: null })}
-                    >
-                        <Text style={styles.createButtonText}>Retry</Text>
-                    </TouchableOpacity>
-                </SafeAreaView>
-            );
-        }
-        return this.props.children;
-    }
-}
-
 export default function ChatScreen({ room, onBack }: ChatScreenProps) {
-    const { user } = useFirebaseAuth();
+    const { user } = useAuth();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    console.log('Inside chatscreen room:', room)
+    const scrollToBottom = useCallback(() => {
+        setTimeout(() => {
+            flatListRef?.current?.scrollToEnd({ animated: true });
+        }, 100);
+    }, []);
+
+    const loadMessages = useCallback(async () => {
+        if (!room?.id) {
+            console.error('Room ID is missing');
+            return;
+        }
+
+        try {
+            const roomMessages = await FirebaseService.getMessages(room.id);
+            const validMessages = roomMessages.filter((msg): msg is ChatMessage => !!msg && !!msg.id);
+            setMessages(validMessages);
+            scrollToBottom();
+        } catch (error) {
+            console.error('Error loading messages:', error);
+            Alert.alert('Error', 'Failed to load messages');
+        }
+    }, [room?.id, scrollToBottom]);
 
     useEffect(() => {
         if (!user || !room?.id) {
@@ -73,37 +62,18 @@ export default function ChatScreen({ room, onBack }: ChatScreenProps) {
         loadMessages();
 
         // Subscribe to real-time updates
-        const unsubscribe = FirebaseService.subscribeToMessages(room?.id, (newMessages) => {
-            setMessages(newMessages.filter((msg): msg is ChatMessage => !!msg && !!msg?.id));
+        const unsubscribe = FirebaseService.subscribeToMessages(room.id, (newMessages) => {
+            const validMessages = newMessages.filter((msg): msg is ChatMessage => !!msg && !!msg.id);
+            setMessages(validMessages);
             scrollToBottom();
         });
 
         return () => {
-            FirebaseService.unsubscribe(unsubscribe);
+            if (unsubscribe) {
+                FirebaseService.unsubscribe(unsubscribe);
+            }
         };
-    }, [user, room?.id]);
-
-    const loadMessages = async () => {
-        if (!room?.id) {
-            console.error('Room ID is missing');
-            return;
-        }
-
-        try {
-            const roomMessages = await FirebaseService.getMessages(room?.id);
-            setMessages(roomMessages.filter((msg): msg is ChatMessage => !!msg && !!msg?.id));
-            scrollToBottom();
-        } catch (error) {
-            console.error('Error loading messages:', error);
-            Alert.alert('Error', 'Failed to load messages');
-        }
-    };
-
-    const scrollToBottom = () => {
-        setTimeout(() => {
-            flatListRef?.current?.scrollToEnd({ animated: true });
-        }, 100);
-    };
+    }, [user, room?.id, loadMessages, scrollToBottom]);
 
     const sendMessage = async () => {
         if (!inputText.trim() || !user || !room?.id || loading) {
@@ -112,10 +82,10 @@ export default function ChatScreen({ room, onBack }: ChatScreenProps) {
         }
 
         const messageData: Omit<ChatMessage, 'id' | 'timestamp'> = {
-            roomId: room?.id,
-            senderId: user?.id,
-            senderName: user?.displayName || 'Anonymous',
-            senderPhoto: user?.photoURL ?? undefined,
+            roomId: room.id,
+            senderId: user.id,
+            senderName: user.displayName || 'Anonymous',
+            senderPhoto: user.photoURL || undefined,
             text: inputText.trim(),
             type: 'text',
             read: false,
@@ -158,13 +128,13 @@ export default function ChatScreen({ room, onBack }: ChatScreenProps) {
             if (!result.canceled && result.assets?.[0]?.uri) {
                 setLoading(true);
 
-                const imageUrl = await FirebaseService.uploadImage(result?.assets[0]?.uri, 'chat-images');
+                const imageUrl = await FirebaseService.uploadImage(result.assets[0].uri, 'chat-images');
 
                 const messageData: Omit<ChatMessage, 'id' | 'timestamp'> = {
-                    roomId: room?.id,
-                    senderId: user?.id,
-                    senderName: user?.displayName || 'Anonymous',
-                    senderPhoto: user?.photoURL ?? undefined,
+                    roomId: room.id,
+                    senderId: user.id,
+                    senderName: user.displayName || 'Anonymous',
+                    senderPhoto: user.photoURL || undefined,
                     imageUrl,
                     type: 'image',
                     read: false,
@@ -182,12 +152,16 @@ export default function ChatScreen({ room, onBack }: ChatScreenProps) {
     };
 
     const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
-        const isCurrentUser = item?.senderId === user?.id;
+        if (!item || !item.id) {
+            return null;
+        }
+
+        const isCurrentUser = item.senderId === user?.id;
         const previousMessage = index > 0 ? messages[index - 1] : null;
         const showAvatar = !isCurrentUser && (
             !previousMessage ||
-            previousMessage?.senderId !== item?.senderId ||
-            new Date(item?.timestamp).getTime() - new Date(previousMessage?.timestamp).getTime() > 300000 // 5 minutes
+            previousMessage.senderId !== item.senderId ||
+            new Date(item.timestamp).getTime() - new Date(previousMessage.timestamp).getTime() > 300000 // 5 minutes
         );
 
         return (
@@ -202,73 +176,81 @@ export default function ChatScreen({ room, onBack }: ChatScreenProps) {
     if (!room || !room.id) {
         return (
             <SafeAreaView style={styles.container}>
-                <Text style={styles.message}>Error: Invalid chat room</Text>
+                <View style={styles.header}>
+                    <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                        <ArrowLeft size={24} color="#111827" />
+                    </TouchableOpacity>
+                    <Text style={styles.message}>Error: Invalid chat room</Text>
+                </View>
             </SafeAreaView>
         );
     }
 
     return (
-        <ErrorBoundary>
-            <SafeAreaView style={styles.container}>
-                <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton} onPress={onBack}>
-                        <ArrowLeft size={24} color="#111827" />
-                    </TouchableOpacity>
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <TouchableOpacity style={styles.backButton} onPress={onBack}>
+                    <ArrowLeft size={24} color="#111827" />
+                </TouchableOpacity>
 
-                    <View style={styles.roomInfo}>
-                        <Text style={styles.roomName}>{room.name || 'Unnamed Room'}</Text>
-                        <Text style={styles.memberCount}>
-                            {(room.members?.length || 0)} member{room.members?.length !== 1 ? 's' : ''}
-                        </Text>
-                    </View>
-
-                    <TouchableOpacity style={styles.moreButton}>
-                        <MoreVertical size={24} color="#111827" />
-                    </TouchableOpacity>
+                <View style={styles.roomInfo}>
+                    <Text style={styles.roomName}>{room.name || 'Unnamed Room'}</Text>
+                    <Text style={styles.memberCount}>
+                        {(room.members?.length || 0)} member{room.members?.length !== 1 ? 's' : ''}
+                    </Text>
                 </View>
 
-                <FlatList
-                    ref={flatListRef}
-                    data={messages}
-                    keyExtractor={(item) => item?.id}
-                    renderItem={renderMessage}
-                    style={styles.messagesList}
-                    contentContainerStyle={styles.messagesContent}
-                    showsVerticalScrollIndicator={false}
-                    onContentSizeChange={scrollToBottom}
-                />
+                <TouchableOpacity style={styles.moreButton}>
+                    <MoreVertical size={24} color="#111827" />
+                </TouchableOpacity>
+            </View>
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.inputContainer}
-                >
-                    <View style={styles.inputRow}>
-                        <TouchableOpacity style={styles.imageButton} onPress={sendImage} disabled={loading}>
-                            <Camera size={20} color={loading ? '#9CA3AF' : '#6B7280'} />
-                        </TouchableOpacity>
-
-                        <TextInput
-                            style={styles.textInput}
-                            placeholder="Type a message..."
-                            placeholderTextColor="#9CA3AF"
-                            value={inputText}
-                            onChangeText={setInputText}
-                            multiline
-                            maxLength={1000}
-                            editable={!loading}
-                        />
-
-                        <TouchableOpacity
-                            style={[styles.sendButton, inputText.trim() && !loading ? styles.sendButtonActive : null]}
-                            onPress={sendMessage}
-                            disabled={!inputText.trim() || loading}
-                        >
-                            <Send size={20} color={inputText.trim() && !loading ? "#FFFFFF" : "#9CA3AF"} />
-                        </TouchableOpacity>
+            <FlatList
+                ref={flatListRef}
+                data={messages}
+                keyExtractor={(item) => item?.id || Math.random().toString()}
+                renderItem={renderMessage}
+                style={styles.messagesList}
+                contentContainerStyle={styles.messagesContent}
+                showsVerticalScrollIndicator={false}
+                onContentSizeChange={scrollToBottom}
+                ListEmptyComponent={
+                    <View style={styles.emptyMessages}>
+                        <Text style={styles.emptyMessagesText}>No messages yet. Start the conversation!</Text>
                     </View>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
-        </ErrorBoundary>
+                }
+            />
+
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.inputContainer}
+            >
+                <View style={styles.inputRow}>
+                    <TouchableOpacity style={styles.imageButton} onPress={sendImage} disabled={loading}>
+                        <Camera size={20} color={loading ? '#9CA3AF' : '#6B7280'} />
+                    </TouchableOpacity>
+
+                    <TextInput
+                        style={styles.textInput}
+                        placeholder="Type a message..."
+                        placeholderTextColor="#9CA3AF"
+                        value={inputText}
+                        onChangeText={setInputText}
+                        multiline
+                        maxLength={1000}
+                        editable={!loading}
+                    />
+
+                    <TouchableOpacity
+                        style={[styles.sendButton, inputText.trim() && !loading ? styles.sendButtonActive : null]}
+                        onPress={sendMessage}
+                        disabled={!inputText.trim() || loading}
+                    >
+                        <Send size={20} color={inputText.trim() && !loading ? "#FFFFFF" : "#9CA3AF"} />
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
@@ -311,6 +293,18 @@ const styles = StyleSheet.create({
     },
     messagesContent: {
         paddingVertical: 16,
+        flexGrow: 1,
+    },
+    emptyMessages: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 32,
+    },
+    emptyMessagesText: {
+        fontSize: 16,
+        color: '#6B7280',
+        textAlign: 'center',
     },
     inputContainer: {
         backgroundColor: '#FFFFFF',
@@ -354,18 +348,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#6B7280',
         textAlign: 'center',
-        marginTop: 40,
-    },
-    createButton: {
-        backgroundColor: '#2563EB',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
-        marginTop: 16,
-    },
-    createButtonText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '600',
+        flex: 1,
     },
 });

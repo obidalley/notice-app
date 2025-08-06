@@ -10,18 +10,28 @@ interface ChatBubbleProps {
 
 export default function ChatBubble({ message, isCurrentUser, showAvatar = false }: ChatBubbleProps) {
     const formatTime = (timestamp: string) => {
-        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        try {
+            return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (error) {
+            return '';
+        }
     };
+
+    if (!message || !message.id) {
+        return null;
+    }
 
     return (
         <View style={[styles.container, isCurrentUser ? styles.currentUserContainer : styles.otherUserContainer]}>
             {!isCurrentUser && showAvatar && (
                 <View style={styles.avatarContainer}>
-                    {message?.senderPhoto ? (
-                        <Image source={{ uri: message?.senderPhoto }} style={styles.avatar} />
+                    {message.senderPhoto ? (
+                        <Image source={{ uri: message.senderPhoto }} style={styles.avatar} />
                     ) : (
                         <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                            <Text style={styles.avatarText}>{message?.senderName?.charAt(0)}</Text>
+                            <Text style={styles.avatarText}>
+                                {message.senderName?.charAt(0) || '?'}
+                            </Text>
                         </View>
                     )}
                 </View>
@@ -29,19 +39,19 @@ export default function ChatBubble({ message, isCurrentUser, showAvatar = false 
 
             <View style={[styles.bubble, isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble]}>
                 {!isCurrentUser && showAvatar && (
-                    <Text style={styles.senderName}>{message?.senderName}</Text>
+                    <Text style={styles.senderName}>{message.senderName || 'Unknown'}</Text>
                 )}
 
-                {message?.type === 'image' && message?.imageUrl ? (
-                    <Image source={{ uri: message?.imageUrl }} style={styles.messageImage} />
+                {message.type === 'image' && message.imageUrl ? (
+                    <Image source={{ uri: message.imageUrl }} style={styles.messageImage} />
                 ) : (
                     <Text style={[styles.messageText, isCurrentUser ? styles.currentUserText : styles.otherUserText]}>
-                        {message?.text}
+                        {message.text || ''}
                     </Text>
                 )}
 
                 <Text style={[styles.timestamp, isCurrentUser ? styles.currentUserTimestamp : styles.otherUserTimestamp]}>
-                    {formatTime(message?.timestamp)}
+                    {formatTime(message.timestamp)}
                 </Text>
             </View>
         </View>

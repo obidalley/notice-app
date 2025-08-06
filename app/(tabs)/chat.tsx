@@ -1,10 +1,10 @@
 import ChatScreen from '@/components/ChatScreen';
-import { useFirebaseAuth } from '@/hooks/useFirebaseAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from '@/hooks/useLocation';
 import { FirebaseService } from '@/services/FirebaseService';
 import { ChatRoom } from '@/types';
 import { MessageSquare, Plus, Search, Users, X } from 'lucide-react-native';
-import React, { Component, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
     FlatList,
@@ -69,7 +69,7 @@ function ChatRoomItem({ room, onPress, onJoin, isMember }: ChatRoomItemProps) {
                     </View>
 
                     <Text style={styles.lastMessage} numberOfLines={1}>
-                        {room.lastMessage?.text || room.lastMessage?.imageUrl ? '📷 Image' : 'No messages yet'}
+                        {room.lastMessage?.text || (room.lastMessage?.imageUrl ? '📷 Image' : 'No messages yet')}
                     </Text>
 
                     <View style={styles.roomMeta}>
@@ -94,39 +94,8 @@ function ChatRoomItem({ room, onPress, onJoin, isMember }: ChatRoomItemProps) {
     );
 }
 
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
-    state = { hasError: false, error: null };
-
-    static getDerivedStateFromError(error: Error) {
-        return { hasError: true, error };
-    }
-
-    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-        console.error('ErrorBoundary caught an error:', error, errorInfo);
-    }
-
-    render() {
-        if (this.state.hasError) {
-            return (
-                <SafeAreaView style={styles.container}>
-                    <Text style={styles.message}>
-                        Something went wrong: {this.state.error || 'Unknown error'}
-                    </Text>
-                    <TouchableOpacity
-                        style={styles.createButton}
-                        onPress={() => this.setState({ hasError: false, error: null })}
-                    >
-                        <Text style={styles.createButtonText}>Retry</Text>
-                    </TouchableOpacity>
-                </SafeAreaView>
-            );
-        }
-        return this.props.children;
-    }
-}
-
 export default function ChatTabScreen() {
-    const { user } = useFirebaseAuth();
+    const { user } = useAuth();
     const { location, loading: locationLoading, error: locationError } = useLocation();
     const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
     const [loading, setLoading] = useState(true);
@@ -135,28 +104,46 @@ export default function ChatTabScreen() {
     const [newRoomName, setNewRoomName] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [subscription, setSubscription] = useState<any>(null);
-    const [locationTimeout, setLocationTimeout] = useState(false);
+
+    const loadChatRooms = useCallback(async () => {
+        if (!user) return;
+
+        try {
+            setLoading(true);
+            const effectiveLocation = (!location || locationError || isNaN(location.latitude) || isNaN(location.longitude))
+                ? undefined
+                : { latitude: location.latitude, longitude: location.longitude };
+
+            const rooms = await FirebaseService.getChatRooms(effectiveLocation);
+            const validRooms = rooms.filter((room): room is ChatRoom => {
+                const isValid = !!room && !!room.id && !!room.name && Array.isArray(room.members);
+                if (!isValid) {
+                    console.warn('Invalid room in loadChatRooms:', room);
+                }
+                return isValid;
+            });
+            
+            setChatRooms(validRooms);
+        } catch (error) {
+            console.error('Error loading chat rooms:', error);
+            Alert.alert('Error', 'Failed to load chat rooms');
+        } finally {
+            setLoading(false);
+        }
+    }, [user, location, locationError]);
 
     useEffect(() => {
-        console.log('ChatTabScreen useEffect:', { user, location, locationLoading, locationError });
-
-        const timeout = setTimeout(() => {
-            if (locationLoading) {
-                console.warn('Location loading timed out');
-                setLocationTimeout(true);
-            }
-        }, 5000); // Reduced to 5 seconds for faster fallback
-
         if (!user) {
             setLoading(false);
-            clearTimeout(timeout);
             return;
         }
 
+        // Load initial data
         loadChatRooms();
 
-        const effectiveLocation = locationTimeout || locationError || !location || isNaN(location.latitude) || isNaN(location.longitude)
-            ? undefined // Fallback to fetching all rooms
+        // Set up real-time subscription
+        const effectiveLocation = (!location || locationError || isNaN(location.latitude) || isNaN(location.longitude))
+            ? undefined
             : { latitude: location.latitude, longitude: location.longitude };
 
         const sub = FirebaseService.subscribeToChatRooms(
@@ -168,7 +155,6 @@ export default function ChatTabScreen() {
                     }
                     return isValid;
                 });
-                console.log('Subscribed chat rooms:', validRooms);
                 setChatRooms(validRooms);
             },
             effectiveLocation
@@ -176,49 +162,22 @@ export default function ChatTabScreen() {
         setSubscription(sub);
 
         return () => {
-            clearTimeout(timeout);
             if (sub) {
                 FirebaseService.unsubscribe(sub);
             }
         };
-    }, [user, location, locationTimeout]); // Simplified dependency array
-
-    const loadChatRooms = async () => {
-        if (!user) return;
-
-        try {
-            setLoading(true);
-            const effectiveLocation = locationTimeout || locationError || !location || isNaN(location.latitude) || isNaN(location.longitude)
-                ? undefined // Fallback to fetching all rooms
-                : { latitude: location.latitude, longitude: location.longitude };
-
-            const rooms = await FirebaseService.getChatRooms(effectiveLocation);
-            const validRooms = rooms.filter((room): room is ChatRoom => {
-                const isValid = !!room && !!room.id && !!room.name && Array.isArray(room.members);
-                if (!isValid) {
-                    console.warn('Invalid room in loadChatRooms:', room);
-                }
-                return isValid;
-            });
-            console.log('Loaded chat rooms:', validRooms);
-            setChatRooms(validRooms);
-        } catch (error) {
-            console.error('Error loading chat rooms:', error);
-            Alert.alert('Error', 'Failed to load chat rooms');
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [user, loadChatRooms]);
 
     const handleCreateRoom = async () => {
         if (!newRoomName.trim() || !user) {
             Alert.alert('Error', 'Please enter a room name');
             return;
         }
-        const effectiveLocation = locationTimeout || locationError || !location || isNaN(location.latitude) || isNaN(location.longitude)
-            ? user.location && !isNaN(user.location.latitude) && !isNaN(user.location.longitude)
+
+        const effectiveLocation = (!location || locationError || isNaN(location.latitude) || isNaN(location.longitude))
+            ? (user.location && !isNaN(user.location.latitude) && !isNaN(user.location.longitude)
                 ? user.location
-                : null
+                : null)
             : location;
 
         if (!effectiveLocation) {
@@ -265,10 +224,19 @@ export default function ChatTabScreen() {
         }
     };
 
-    const handleSelectRoom = (room: ChatRoom) => {
+    const handleSelectRoom = useCallback((room: ChatRoom) => {
+        if (!room || !room.id) {
+            console.error('Invalid room selected:', room);
+            return;
+        }
         console.log('Navigating to ChatScreen for room:', room.id);
         setSelectedRoom(room);
-    };
+    }, []);
+
+    const handleBackFromChat = useCallback(() => {
+        console.log('Navigating back from ChatScreen');
+        setSelectedRoom(null);
+    }, []);
 
     const filteredRooms = chatRooms.filter(room =>
         room?.name?.toLowerCase?.()?.includes(searchQuery.toLowerCase()) ?? false
@@ -276,21 +244,10 @@ export default function ChatTabScreen() {
 
     if (selectedRoom) {
         return (
-            <ErrorBoundary>
-                {selectedRoom && selectedRoom.id ? (
-                    <ChatScreen
-                        room={selectedRoom}
-                        onBack={() => {
-                            console.log('Navigating back from ChatScreen');
-                            setSelectedRoom(null);
-                        }}
-                    />
-                ) : (
-                    <SafeAreaView style={styles.container}>
-                        <Text style={styles.message}>Error: No chat room selected</Text>
-                    </SafeAreaView>
-                )}
-            </ErrorBoundary>
+            <ChatScreen
+                room={selectedRoom}
+                onBack={handleBackFromChat}
+            />
         );
     }
 
@@ -303,114 +260,115 @@ export default function ChatTabScreen() {
     }
 
     return (
-        <ErrorBoundary>
-            <SafeAreaView style={styles.container}>
-                <View style={styles.header}>
-                    <View>
-                        <Text style={styles.title}>Community Chat</Text>
-                        <Text style={styles.locationText}>
-                            {locationTimeout || locationError || !location
-                                ? 'Showing all chat rooms'
-                                : `Chat rooms within 10km of ${location.address || 'Unknown address'}`}
-                        </Text>
-                    </View>
-                    <TouchableOpacity style={styles.addButton} onPress={() => setShowCreateModal(true)}>
-                        <Plus size={20} color="#2563EB" />
-                    </TouchableOpacity>
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <View>
+                    <Text style={styles.title}>Community Chat</Text>
+                    <Text style={styles.locationText}>
+                        {locationError || !location
+                            ? 'Showing all chat rooms'
+                            : `Chat rooms within 10km of ${location.address || 'your location'}`}
+                    </Text>
                 </View>
+                <TouchableOpacity style={styles.addButton} onPress={() => setShowCreateModal(true)}>
+                    <Plus size={20} color="#2563EB" />
+                </TouchableOpacity>
+            </View>
 
-                <View style={styles.searchContainer}>
-                    <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Search chat rooms..."
-                        placeholderTextColor="#9CA3AF"
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
+            <View style={styles.searchContainer}>
+                <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
+                <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search chat rooms..."
+                    placeholderTextColor="#9CA3AF"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                />
+            </View>
+
+            <FlatList
+                data={filteredRooms}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                    <ChatRoomItem
+                        room={item}
+                        onPress={() => handleSelectRoom(item)}
+                        onJoin={() => handleJoinRoom(item.id)}
+                        isMember={item.members.includes(user.id)}
                     />
-                </View>
+                )}
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                refreshing={loading}
+                onRefresh={loadChatRooms}
+                ListEmptyComponent={
+                    <View style={styles.emptyState}>
+                        <MessageSquare size={48} color="#9CA3AF" />
+                        <Text style={styles.emptyTitle}>No Chat Rooms</Text>
+                        <Text style={styles.emptyDescription}>
+                            {locationError
+                                ? 'No chat rooms available'
+                                : 'No chat rooms found. Create one to connect with your community!'}
+                        </Text>
+                        <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateModal(true)}>
+                            <Text style={styles.createButtonText}>Create Room</Text>
+                        </TouchableOpacity>
+                    </View>
+                }
+            />
 
-                <FlatList
-                    data={filteredRooms}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({ item }) => (
-                        <ChatRoomItem
-                            room={item}
-                            onPress={() => handleSelectRoom(item)}
-                            onJoin={() => handleJoinRoom(item.id)}
-                            isMember={item.members.includes(user.id)}
-                        />
-                    )}
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
-                    refreshing={loading}
-                    onRefresh={loadChatRooms}
-                    ListEmptyComponent={
-                        <View style={styles.emptyState}>
-                            <MessageSquare size={48} color="#9CA3AF" />
-                            <Text style={styles.emptyTitle}>No Chat Rooms</Text>
-                            <Text style={styles.emptyDescription}>
-                                {locationTimeout || locationError
-                                    ? 'No chat rooms available'
-                                    : 'No chat rooms found. Create one to connect with your community!'}
-                            </Text>
-                            <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateModal(true)}>
-                                <Text style={styles.createButtonText}>Create Room</Text>
+            <Modal
+                visible={showCreateModal}
+                transparent
+                animationType="slide"
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Create Chat Room</Text>
+                            <TouchableOpacity onPress={() => setShowCreateModal(false)}>
+                                <X size={24} color="#6B7280" />
                             </TouchableOpacity>
                         </View>
-                    }
-                />
 
-                <Modal
-                    visible={showCreateModal}
-                    transparent
-                    animationType="slide"
-                >
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Create Chat Room</Text>
-                                <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-                                    <X size={24} color="#6B7280" />
-                                </TouchableOpacity>
-                            </View>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="Room name..."
+                            placeholderTextColor="#9CA3AF"
+                            value={newRoomName}
+                            onChangeText={setNewRoomName}
+                            autoFocus
+                        />
 
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="Room name..."
-                                placeholderTextColor="#9CA3AF"
-                                value={newRoomName}
-                                onChangeText={setNewRoomName}
-                                autoFocus
-                            />
+                        <Text style={styles.locationText}>
+                            {locationError || !location
+                                ? 'Using profile location'
+                                : `Location: ${location.address || 'Unknown address'}`}
+                        </Text>
 
-                            <Text style={styles.locationText}>
-                                {locationTimeout || locationError || !location
-                                    ? 'Using profile location'
-                                    : `Location: ${location.address || 'Unknown address'}`}
-                            </Text>
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                style={styles.modalCancelButton}
+                                onPress={() => setShowCreateModal(false)}
+                            >
+                                <Text style={styles.modalCancelText}>Cancel</Text>
+                            </TouchableOpacity>
 
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    style={styles.modalCancelButton}
-                                    onPress={() => setShowCreateModal(false)}
-                                >
-                                    <Text style={styles.modalCancelText}>Cancel</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={[styles.modalCreateButton, (!newRoomName.trim() || (!location && !user.location)) && styles.modalCreateButtonDisabled]}
-                                    onPress={handleCreateRoom}
-                                    disabled={!newRoomName.trim() || (!location && !user.location)}
-                                >
-                                    <Text style={styles.modalCreateText}>Create</Text>
-                                </TouchableOpacity>
-                            </View>
+                            <TouchableOpacity
+                                style={[
+                                    styles.modalCreateButton,
+                                    (!newRoomName.trim() || (!location && !user.location)) && styles.modalCreateButtonDisabled
+                                ]}
+                                onPress={handleCreateRoom}
+                                disabled={!newRoomName.trim() || (!location && !user.location)}
+                            >
+                                <Text style={styles.modalCreateText}>Create</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
-                </Modal>
-            </SafeAreaView>
-        </ErrorBoundary>
+                </View>
+            </Modal>
+        </SafeAreaView>
     );
 }
 
@@ -542,6 +500,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 32,
+        paddingTop: 60,
     },
     emptyTitle: {
         fontSize: 20,
