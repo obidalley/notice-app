@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { FirebaseService } from '@/services/FirebaseService';
 import { ChatMessage, ChatRoom } from '@/types';
 import * as ImagePicker from 'expo-image-picker';
-import { ArrowLeft, Camera, MoreVertical, Send } from 'lucide-react-native';
+import { ArrowLeft, Camera, MoveVertical as MoreVertical, Send } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
